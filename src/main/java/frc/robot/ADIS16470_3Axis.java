@@ -131,7 +131,7 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
   private static final int FLSHCNT_HIGH = 0x7E; // Flash update count, upper word
 
   //Following packet requests all three gyro axes
-  private static final byte[] m_autospi_allAngle_packet = {
+  private static final byte[] m_autospi_packet = {
     X_DELTANG_OUT,
     FLASH_CNT,
     X_DELTANG_LOW,
@@ -144,23 +144,17 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
     FLASH_CNT,
     Z_DELTANG_LOW,
     FLASH_CNT,
-    X_GYRO_OUT,
+    X_ACCL_OUT,
     FLASH_CNT,
-    Y_GYRO_OUT,
+    X_ACCL_LOW,
     FLASH_CNT,
-    Z_GYRO_OUT,
+    Y_ACCL_OUT,
     FLASH_CNT,
-    X_DELTVEL_OUT,
+    Y_ACCL_LOW,
     FLASH_CNT,
-    X_DELTVEL_LOW,
+    Z_ACCL_OUT,
     FLASH_CNT,
-    Y_DELTVEL_OUT,
-    FLASH_CNT,
-    Y_DELTVEL_LOW,
-    FLASH_CNT,
-    Z_DELTVEL_OUT,
-    FLASH_CNT,
-    Z_DELTVEL_LOW,
+    Z_ACCL_LOW,
     FLASH_CNT
   };
 
@@ -202,21 +196,14 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
   }
 
   // Static Constants
-  private static final double delta_angle_sf = 2160.0 / 2147483648.0; /* 2160 / (2^31) */
-  private static final double delta_velo_sf = 400.0 / 2147483648.0;
-  private static final double rad_to_deg = 57.2957795;
-  private static final double deg_to_rad = 0.0174532;
-  private static final double grav = 9.81;
+  private static final double k_delta_angle_sf = 2160.0 / 2147483648.0;
+  private static final double k_accel_sf = 2097152000.0 / 40.0;
+  private static final double k_grav = 9.80665; // Convert g-unit to meters
 
   // User-specified axes
   private IMUAxis m_yaw_axis;
   private IMUAxis m_pitch_axis;
   private IMUAxis m_roll_axis;
-
-  // members used as storage for raw outputs
-  private double m_gyro_rate_x = 0.0;
-  private double m_gyro_rate_y = 0.0;
-  private double m_gyro_rate_z = 0.0;
 
   // members used to accumulate/integrate gyro angles
   private double m_integ_angle_x = 0.0;
@@ -224,9 +211,9 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
   private double m_integ_angle_z = 0.0;
 
   // members used to store velocity outputs
-  private double m_velo_x = 0.0;
-  private double m_velo_y = 0.0;
-  private double m_velo_z = 0.0;
+  private double m_accel_x = 0.0;
+  private double m_accel_y = 0.0;
+  private double m_accel_z = 0.0;
 
   // State variables
   private volatile boolean m_thread_active = false;
@@ -252,12 +239,9 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
   private SimDouble m_simGyroAngleX;
   private SimDouble m_simGyroAngleY;
   private SimDouble m_simGyroAngleZ;
-  private SimDouble m_simGyroRateX;
-  private SimDouble m_simGyroRateY;
-  private SimDouble m_simGyroRateZ;
-  private SimDouble m_simVeloX;
-  private SimDouble m_simVeloY;
-  private SimDouble m_simVeloZ;
+  private SimDouble m_simAccelX;
+  private SimDouble m_simAccelY;
+  private SimDouble m_simAccelZ;
 
   /**
    * Class that run in thread, calls acquisition of data
@@ -356,12 +340,9 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
       m_simGyroAngleX = m_simDevice.createDouble("gyro_angle_x", SimDevice.Direction.kInput, 0.0);
       m_simGyroAngleY = m_simDevice.createDouble("gyro_angle_y", SimDevice.Direction.kInput, 0.0);
       m_simGyroAngleZ = m_simDevice.createDouble("gyro_angle_z", SimDevice.Direction.kInput, 0.0);
-      m_simGyroRateX = m_simDevice.createDouble("gyro_rate_x", SimDevice.Direction.kInput, 0.0);
-      m_simGyroRateY = m_simDevice.createDouble("gyro_rate_y", SimDevice.Direction.kInput, 0.0);
-      m_simGyroRateZ = m_simDevice.createDouble("gyro_rate_z", SimDevice.Direction.kInput, 0.0);
-      m_simVeloX = m_simDevice.createDouble("velo_x", SimDevice.Direction.kInput, 0.0);
-      m_simVeloY = m_simDevice.createDouble("velo_y", SimDevice.Direction.kInput, 0.0);
-      m_simVeloZ = m_simDevice.createDouble("velo_z", SimDevice.Direction.kInput, 0.0); 
+      m_simAccelX = m_simDevice.createDouble("accel_x", SimDevice.Direction.kInput, 0.0);
+      m_simAccelY = m_simDevice.createDouble("accel_y", SimDevice.Direction.kInput, 0.0);
+      m_simAccelZ = m_simDevice.createDouble("accel_z", SimDevice.Direction.kInput, 0.0); 
     }
 
     if (m_simDevice == null) {
@@ -554,7 +535,7 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
     }
 
     // Do we need to change auto SPI settings?
-    m_spi.setAutoTransmitData(m_autospi_allAngle_packet, 2);
+    m_spi.setAutoTransmitData(m_autospi_packet, 2);
 
     // Configure auto stall time
     m_spi.configureAutoStall(5, 1000, 1);
@@ -708,7 +689,7 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
   /** */
   private void acquire() {
     // Set data packet length
-    final int dataset_len = 33; // (27) 26 data points + timestamp
+    final int dataset_len = 27; // 26 data points + timestamp
     final int BUFFER_SIZE = 4000;
 
     // Set up buffers and variables
@@ -720,12 +701,9 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
     double delta_angle_x = 0.0;
     double delta_angle_y = 0.0;
     double delta_angle_z = 0.0;
-    double gyro_rate_x = 0.0;
-    double gyro_rate_y = 0.0;
-    double gyro_rate_z = 0.0;
-    double delta_velo_x = 0.0;
-    double delta_velo_y = 0.0;
-    double delta_velo_z = 0.0;
+    double accel_x = 0.0;
+    double accel_y = 0.0;
+    double accel_z = 0.0;
     
     while (true) {
       // Sleep loop for 10ms
@@ -762,19 +740,14 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
            * Get delta angle value for all 3 axes and scale by the elapsed time
            * (based on timestamp)
            */
-          delta_angle_x = (toInt(buffer[i + 3], buffer[i + 4], buffer[i + 5], buffer[i + 6]) * delta_angle_sf) / timeScale;
-          delta_angle_y = (toInt(buffer[i + 7], buffer[i + 8], buffer[i + 9], buffer[i + 10]) * delta_angle_sf) / timeScale;
-          delta_angle_z = (toInt(buffer[i + 11], buffer[i + 12], buffer[i + 13], buffer[i + 14]) * delta_angle_sf) / timeScale;
-
-          //read in the current gyro speed on each axis
-          gyro_rate_x = (toShort(buffer[i + 15], buffer[i + 16]) / 10.0);
-          gyro_rate_y = (toShort(buffer[i + 17], buffer[i + 18]) / 10.0);
-          gyro_rate_z = (toShort(buffer[i + 19], buffer[i + 20]) / 10.0);
+          delta_angle_x = (toInt(buffer[i + 3], buffer[i + 4], buffer[i + 5], buffer[i + 6]) * k_delta_angle_sf) / timeScale;
+          delta_angle_y = (toInt(buffer[i + 7], buffer[i + 8], buffer[i + 9], buffer[i + 10]) * k_delta_angle_sf) / timeScale;
+          delta_angle_z = (toInt(buffer[i + 11], buffer[i + 12], buffer[i + 13], buffer[i + 14]) * k_delta_angle_sf) / timeScale;
 
           // Get delta velocity value for all 3 axes and scale by elapsed time (based on timestamp)
-          delta_velo_x = (toInt(buffer[i + 21], buffer[i + 22], buffer[i + 23], buffer[i + 24]) * delta_velo_sf) / timeScale;
-          delta_velo_y = (toInt(buffer[i + 25], buffer[i + 26], buffer[i + 27], buffer[i + 28]) * delta_velo_sf) / timeScale;
-          delta_velo_z = (toInt(buffer[i + 29], buffer[i + 30], buffer[i + 31], buffer[i + 32]) * delta_velo_sf) / timeScale;
+          accel_x = toInt(buffer[i + 15], buffer[i + 16], buffer[i + 17], buffer[i + 18]) / k_accel_sf * k_grav;
+          accel_y = toInt(buffer[i + 19], buffer[i + 20], buffer[i + 21], buffer[i + 22]) / k_accel_sf * k_grav;
+          accel_z = toInt(buffer[i + 23], buffer[i + 24], buffer[i + 25], buffer[i + 26]) / k_accel_sf + k_grav;
 
           // Store timestamp for next iteration
           previous_timestamp = buffer[i];
@@ -789,22 +762,15 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
               m_integ_angle_x = 0.0;
               m_integ_angle_y = 0.0;
               m_integ_angle_z = 0.0;
-
-              m_velo_x = 0.0;
-              m_velo_y = 0.0;
-              m_velo_z = 0.0;
             } else {
               m_integ_angle_x += delta_angle_x;
               m_integ_angle_y += delta_angle_y;
               m_integ_angle_z += delta_angle_z;
-
-              m_velo_x += delta_velo_x;
-              m_velo_y += delta_velo_y;
-              m_velo_z += delta_velo_z;
             }
-            m_gyro_rate_x = gyro_rate_x;
-            m_gyro_rate_y = gyro_rate_y;
-            m_gyro_rate_z = gyro_rate_z;
+
+            m_accel_x = accel_x;
+            m_accel_y = accel_y;
+            m_accel_z = accel_z;
           }
           m_first_run = false;
         }
@@ -817,12 +783,9 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
         delta_angle_x = 0.0;
         delta_angle_y = 0.0;
         delta_angle_z = 0.0;
-        gyro_rate_x = 0.0;
-        gyro_rate_y = 0.0;
-        gyro_rate_z = 0.0;
-        delta_velo_x = 0.0;
-        delta_velo_y = 0.0;
-        delta_velo_z = 0.0;
+        accel_x = 0.0;
+        accel_y = 0.0;
+        accel_z = 0.0;
       }
     }
   }
@@ -835,17 +798,6 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
       m_integ_angle_x = 0.0;
       m_integ_angle_y = 0.0;
       m_integ_angle_z = 0.0;
-    }
-  }
-
-  /**
-   * Resets all velocity accumulators to 0.0
-   */
-  public void resetAllVelocities() {
-    synchronized (this) {
-      m_velo_x = 0.0;
-      m_velo_y = 0.0;
-      m_velo_z = 0.0;
     }
   }
 
@@ -973,77 +925,34 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
     return 0.0;
   }
 
-
-  /** 
-   * @param axis the IMUAxis whose angle to return
-   * @return axis angular rate in degrees per second (CCW positive) 
-   * */
-  public synchronized double getRate(IMUAxis axis) {
-    //if pitch yaw or roll is inputed than it is replaced with its equivelant axis
-    switch (axis) {
-      case kYaw: 
-        axis = m_yaw_axis;
-        break;
-      case kPitch: 
-        axis = m_pitch_axis;
-        break;
-      case kRoll: 
-        axis = m_roll_axis;
-        break;
-      default: //is it isn't pitch yaw or roll than the axis is left unchanged
+  /**
+   * @return Acceleration of the X axis (m/sec^2)
+   */
+  public double getAccelerationX() {
+    if (m_simAccelX != null) {
+      return m_simAccelX.get();
     }
-
-    //the selected axis value is returned
-    switch (axis) {
-      case kX:
-
-        if (m_simGyroRateX != null) {
-          return m_simGyroRateX.get();
-        }
-        return m_gyro_rate_x;
-      case kY:
-        if (m_simGyroRateY != null) {
-          return m_simGyroRateY.get();
-        }
-        return m_gyro_rate_y;
-      case kZ:
-        if (m_simGyroRateZ != null) {
-          return m_simGyroRateZ.get();
-        }
-        return m_gyro_rate_z;
-        default:
-    }
-      return 0.0;
+    return m_accel_x;
   }
 
   /**
-   * @return Velocity of the X axis (m/sec)
+   * @return Acceleration of the Y axis (m/sec^2)
    */
-  public double getXVelocity() {
-    if (m_simVeloX != null) {
-      return m_simVeloX.get();
+  public double getAccelerationY() {
+    if (m_simAccelY != null) {
+      return m_simAccelY.get();
     }
-    return m_velo_x;
+    return m_accel_y;
   }
-
+  
   /**
-   * @return Velocity of the Y axis (m/sec)
+   * @return Acceleration of the Z axis (m/sec^2)
    */
-  public double getYVelocity() {
-    if (m_simVeloY != null) {
-      return m_simVeloY.get();
+  public double getAccelerationZ() {
+    if (m_simAccelZ != null) {
+      return m_simAccelZ.get();
     }
-    return m_velo_y;
-  }
-
-  /**
-   * @return Velocity of the Z axis (m/sec)
-   */
-  public double getZVelocity() {
-    if (m_simVeloZ != null) {
-      return m_simVeloZ.get();
-    }
-    return m_velo_z;
+    return m_accel_z;
   }
 
   /** 
