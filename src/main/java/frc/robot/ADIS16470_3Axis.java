@@ -744,7 +744,7 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
           delta_angle_y = (toInt(buffer[i + 7], buffer[i + 8], buffer[i + 9], buffer[i + 10]) * k_delta_angle_sf) / timeScale;
           delta_angle_z = (toInt(buffer[i + 11], buffer[i + 12], buffer[i + 13], buffer[i + 14]) * k_delta_angle_sf) / timeScale;
 
-          // Get delta velocity value for all 3 axes and scale by elapsed time (based on timestamp)
+          // Get acceleration for each axes and convert to m/sec^2 (from g-unit)
           accel_x = toInt(buffer[i + 15], buffer[i + 16], buffer[i + 17], buffer[i + 18]) / k_accel_sf * k_grav;
           accel_y = toInt(buffer[i + 19], buffer[i + 20], buffer[i + 21], buffer[i + 22]) / k_accel_sf * k_grav;
           accel_z = toInt(buffer[i + 23], buffer[i + 24], buffer[i + 25], buffer[i + 26]) / k_accel_sf + k_grav;
