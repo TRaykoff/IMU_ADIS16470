@@ -747,7 +747,7 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
           // Get acceleration for each axes and convert to m/sec^2 (from g-unit)
           accel_x = toInt(buffer[i + 15], buffer[i + 16], buffer[i + 17], buffer[i + 18]) / k_accel_sf * k_grav;
           accel_y = toInt(buffer[i + 19], buffer[i + 20], buffer[i + 21], buffer[i + 22]) / k_accel_sf * k_grav;
-          accel_z = toInt(buffer[i + 23], buffer[i + 24], buffer[i + 25], buffer[i + 26]) / k_accel_sf + k_grav;
+          accel_z = toInt(buffer[i + 23], buffer[i + 24], buffer[i + 25], buffer[i + 26]) / k_accel_sf * k_grav;
 
           // Store timestamp for next iteration
           previous_timestamp = buffer[i];
