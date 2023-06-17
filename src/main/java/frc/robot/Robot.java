@@ -9,6 +9,7 @@ import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.shuffleboard.Shuffleboard;
 import edu.wpi.first.wpilibj.shuffleboard.ShuffleboardTab;
 import frc.robot.ADIS16470_3Axis.IMUAxis;
+import edu.wpi.first.wpilibj.Timer;
 
 /**
  * The VM is configured to automatically run this class, and to call the functions corresponding to
@@ -18,7 +19,7 @@ import frc.robot.ADIS16470_3Axis.IMUAxis;
  */
 public class Robot extends TimedRobot {
   // CONFIG
-  private boolean kUSE_SHUFFLEBOARD = true;
+  private boolean kUSE_SHUFFLEBOARD = false;
 
   // Gyro
   ADIS16470_3Axis gyro = new ADIS16470_3Axis(IMUAxis.kZ, IMUAxis.kX, IMUAxis.kY);
@@ -37,6 +38,7 @@ public class Robot extends TimedRobot {
   @Override
   public void robotInit() {}
 
+  private double lt = 0 ;
   @Override
   public void robotPeriodic() {
     // Update Shuffleboard
@@ -49,13 +51,19 @@ public class Robot extends TimedRobot {
       yAccel.setDouble(gyro.getAccelerationY());
       zAccel.setDouble(gyro.getAccelerationZ());
     } else {
-      System.out.println(String.format("Angle: %s, %s, %s; Velo: %s, %s, %s",
+      double t = Timer.getFPGATimestamp();
+      if (t-lt>1) lt = t;
+      else return; 
+      System.out.println(String.format("Angle: %s, %s, %s; Accel: %s, %s, %s, Acquire: %d Overflow: %d Queue Size: %d",
         gyro.getAngle(gyro.getYawAxis()),
         gyro.getAngle(gyro.getPitchAxis()),
         gyro.getAngle(gyro.getRollAxis()),
         gyro.getAccelerationX(),
         gyro.getAccelerationY(),
-        gyro.getAccelerationZ()
+        gyro.getAccelerationZ(),
+        gyro.getAcquireCnt(),
+        gyro.getOverFlowCnt(),
+        gyro.getQuqueSize()
       ));
     }
   }
