@@ -29,6 +29,15 @@ import java.nio.ByteOrder;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
+//import org.apache.commons.math3.geometry.euclidean.threed.Vector3D;
+//import org.apache.commons.math3.complex.Quaternion;
+//import org.apache.commons.numbers.quaternion.Quaternion;
+import org.apache.commons.geometry.euclidean.threed.Vector3D;
+import org.apache.commons.geometry.euclidean.threed.rotation.*;
+import java.lang.Math;
+
+
+
 // CHECKSTYLE.OFF: TypeName
 // CHECKSTYLE.OFF: MemberName
 // CHECKSTYLE.OFF: SummaryJavadoc
@@ -61,7 +70,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
   "PMD.EmptyIfStmt",
   "PMD.EmptyStatementNotInLoop"
 })*/
-public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
+public class ADIS16470_3Axis implements AutoCloseable, NTSendable { 
   /* ADIS16470 Register Map Declaration */
   private static final int FLASH_CNT = 0x00; // Flash memory write count
   private static final int DIAG_STAT = 0x02; // Diagnostic and operational status
@@ -134,38 +143,48 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
   private static final int FLSHCNT_HIGH = 0x7E; // Flash update count, upper word
 
   private class DataPacket {
-    double timeScale, 
-    X_da, Y_da, Z_da,
+    double timeScale, timeStamp , 
+    X_av, Y_av, Z_av,
     X_a, Y_a, Z_a ;
-  }
-  //Following packet requests all three gyro axes
-  private static final byte[] m_autospi_packet = {
-    X_DELTANG_OUT,
-    FLASH_CNT,
-    X_DELTANG_LOW,
-    FLASH_CNT,
-    Y_DELTANG_OUT,
-    FLASH_CNT,
-    Y_DELTANG_LOW,
-    FLASH_CNT,
-    Z_DELTANG_OUT,
-    FLASH_CNT,
-    Z_DELTANG_LOW,
-    FLASH_CNT,
-    X_ACCL_OUT,
-    FLASH_CNT,
-    X_ACCL_LOW,
-    FLASH_CNT,
-    Y_ACCL_OUT,
-    FLASH_CNT,
-    Y_ACCL_LOW,
-    FLASH_CNT,
-    Z_ACCL_OUT,
-    FLASH_CNT,
-    Z_ACCL_LOW,
-    FLASH_CNT
-  };
+ 
 
+    public String toString() {
+      return String.format ( "A(%.2f,%.2f,%.2f) DA(%.2f,%.2f,%.2f) @ %.4f",
+      X_a, Y_a, Z_a, X_av, Y_av, Z_av,
+      timeStamp
+      );
+    }
+  }
+  //Diagnostics
+  // private static final byte[] m_autospi_packet = {
+  //   X_GYRO_OUT,
+  //   FLASH_CNT,
+  //   Y_GYRO_OUT,
+  //   FLASH_CNT,  
+  //   Z_GYRO_OUT,
+  //   FLASH_CNT,
+  //   X_ACCL_OUT,
+  //   FLASH_CNT, 
+  //   Y_ACCL_OUT,
+  //   FLASH_CNT, 
+  //   Z_ACCL_OUT,
+  //   FLASH_CNT ,
+  //   DATA_CNTR ,
+  //   FLASH_CNT, 
+  //   DIAG_STAT,
+  //   FLASH_CNT
+  // };
+
+   //High-res outputs
+  private static final byte[] m_autospi_packet = {
+    X_GYRO_OUT, FLASH_CNT,  X_GYRO_LOW, FLASH_CNT,
+    Y_GYRO_OUT,  FLASH_CNT,  Y_GYRO_LOW, FLASH_CNT,
+    Z_GYRO_OUT, FLASH_CNT,  Z_GYRO_LOW, FLASH_CNT,
+    X_ACCL_OUT, FLASH_CNT, X_ACCL_LOW, FLASH_CNT,
+    Y_ACCL_OUT,  FLASH_CNT, 
+    Z_ACCL_OUT, FLASH_CNT  
+  };
+ 
   /**
    * the time the IMU calibrates on boot
    */
@@ -204,9 +223,10 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
   }
 
   // Static Constants
-  private static final double k_delta_angle_sf = 2160.0 / 2147483648.0;
-  private static final double k_accel_sf = 2097152000.0 / 40.0;
+  private static final double rad_to_deg = 180 / Math.PI ; 
+  private static final double k_av_sf = 0.1 / Math.pow(2,16) / rad_to_deg;
   private static final double k_grav = 9.80665; // Convert g-unit to meters
+  private static final double k_accel_sf = 1.25  / 1000 / Math.pow(2,16)   * k_grav; 
 
   // User-specified axes
   private IMUAxis m_yaw_axis;
@@ -214,14 +234,28 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
   private IMUAxis m_roll_axis;
 
   // members used to accumulate/integrate gyro angles
-  private double m_integ_angle_x = 0.0;
-  private double m_integ_angle_y = 0.0;
-  private double m_integ_angle_z = 0.0;
+  private double m_delta_ang_x = 0.0;
+  private double m_delta_ang_y = 0.0;
+  private double m_delta_ang_z = 0.0;
 
-  // members used to store velocity outputs
-  private double m_accel_x = 0.0;
-  private double m_accel_y = 0.0;
-  private double m_accel_z = 0.0;
+  private double [] m_ang_v_x = {0,0};
+  private double [] m_ang_v_y = {0,0};
+  private double [] m_ang_v_z = {0,0};
+
+  // members used to store integrations 
+  private double m_x = 0.0;
+  private double m_y = 0.0;
+  private double m_z = 0.0;
+
+  private double m_angle_x_deg, m_angle_y_deg, m_angle_z_deg = 0;
+ 
+  private double[] m_v_x = {0,0};
+  private double[] m_v_y = {0,0};
+  private double[] m_v_z = {0,0};
+
+  private double[] m_accel_x = {0,0};
+  private double[] m_accel_y = {0,0};
+  private double[] m_accel_z = {0,0};
 
   // State variables
   private volatile boolean m_thread_active = false;
@@ -388,26 +422,31 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
 
       // Set IMU internal decimation to 4 (output data rate of 2000 SPS / (4 + 1) =
       // 400Hz)
-      writeRegister(DEC_RATE, 4);
+      //writeRegister(DEC_RATE, 4);
+
+      //get all 2000 samples per second, no filtering:
+      m_scaled_sample_rate = (((0 + 1.0) / 2000.0) * 1000000.0);
+      writeRegister(DEC_RATE, 0);
 
       // Set data ready polarity (HIGH = Good Data), Disable gSense Compensation and
       // PoP
-      writeRegister(MSC_CTRL, 1);
+      writeRegister(MSC_CTRL , 0x00C1);
 
       // Configure IMU internal Bartlett filter
       writeRegister(FILT_CTRL, 0);
 
       // Configure continuous bias calibration time based on user setting
       writeRegister(NULL_CNFG, (m_calibration_time | 0x0700));
-
-      // Notify DS that IMU calibration delay is active
-      DriverStation.reportWarning(
-          "ADIS16470 IMU Detected. Starting initial calibration delay.", false);
+ 
 
       // Wait for samples to accumulate internal to the IMU (110% of user-defined
       // time)
       try {
-        Thread.sleep((long) (Math.pow(2.0, m_calibration_time) / 2000 * 64 * 1.1 * 1000));
+        long dt = (long) (Math.pow(2.0, m_calibration_time) / 2000 * 64 * 1.1 * 1000);
+        // Notify DS that IMU calibration delay is active
+        DriverStation.reportWarning(
+          String.format("ADIS16470 IMU Detected. Starting initial calibration delay of %d ms", dt), false);
+        Thread.sleep(dt);
       } catch (InterruptedException e) {
       }
 
@@ -636,6 +675,8 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
       DriverStation.reportError("Failed to configure/reconfigure auto SPI.", false);
       return 2;
     }
+    rot_initial=null; // force another gravity calibration
+    Q.clear();
     return 0;
   }
 
@@ -721,14 +762,21 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
   private int overflowCnt = 0 ;
   private AtomicInteger queueSize = new AtomicInteger(0);
   private ConcurrentLinkedQueue<DataPacket> Q = new ConcurrentLinkedQueue<DataPacket>();
-
+  private QuaternionRotation rot_initial= null, rot; 
   public int getAcquireCnt () { return acquireCnt;}
   public int getOverFlowCnt() { return overflowCnt; }
   public int getQuqueSize()  { return queueSize.get(); }
 
-  /** */
-
+   
   private void domath() { 
+
+    double calStartTime=-1;
+    
+    Vector3D v = Vector3D.of(0,0,0);
+    int j=0;
+    double gravity=-1;
+    double lts=-1;
+    int dpc = 0 ;
 
     while (true) {
       DataPacket dp = Q.poll();
@@ -738,40 +786,129 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
         catch (InterruptedException e) { }
         continue;
       }
-
-      queueSize.decrementAndGet();
- 
+      // if (dpc++ % 1000 == 0)
+      //   System.out.println (dp);
       
-      synchronized (this) { 
-          m_accel_x = dp.X_a;
-          m_accel_y = dp.Y_a;
-          m_accel_z = dp.Z_a;
+      queueSize.decrementAndGet(); 
 
-          if (m_first_run) {
-                  /*
-                  * Don't accumulate first run. previous_timestamp will be "very" old and the
-                  * integration will end up way off
-                  */
-                  m_integ_angle_x = 0.0;
-                  m_integ_angle_y = 0.0;
-                  m_integ_angle_z = 0.0;
-          } else {
-                  m_integ_angle_x += dp.X_da;
-                  m_integ_angle_y += dp.Y_da;
-                  m_integ_angle_z += dp.Z_da;
-          }
-    }
+      if (rot_initial == null){
+        if (calStartTime <0) { 
+            calStartTime = dp.timeStamp;
+            v = Vector3D.of(0,0,0);
+            j=0;
+            System.out.println ("Starting gravity calibration"); 
 
-      m_first_run = false;
+          // members used to accumulate/integrate gyro angles
+          m_delta_ang_x = 0.0;
+          m_delta_ang_y = 0.0;
+          m_delta_ang_z = 0.0;
+
+          // members used to store integrations 
+          m_accel_x = new double[] {0,0} ; 
+          m_accel_y =  new double[] {0,0} ; 
+          m_accel_z =  new double[] {0,0} ; 
+
+          m_v_x = new double[] {0,0} ; 
+          m_v_y= new double[] {0,0} ; 
+          m_v_z=  new double[] {0,0} ;
+
+          m_ang_v_x = new double[] {0,0} ; 
+          m_ang_v_y = new double[] {0,0} ; 
+          m_ang_v_z = new double[] {0,0} ; 
+
+          m_angle_x_deg= m_angle_y_deg= m_angle_z_deg = 0;
+          m_y = m_z = m_x  = 0; 
+        }
+        else if (dp.timeStamp - 1 < calStartTime) {
+          //in gravity calibration
+          v = v.add(Vector3D.of(dp.X_a, dp.Y_a, dp.Z_a));
+          j++;
+        } else {
+          //calibration done 
+          v = v.multiply(-1e0/j); 
+          gravity = -v.norm();
+          System.out.printf ("Gravity calibration done.  %d reads, g=%.3f at [%s]\n",
+            j, gravity, v.normalize() );
+           
+          Vector3D straight_down = Vector3D.of(
+              m_yaw_axis == IMUAxis.kX ? -1:0,
+              m_yaw_axis == IMUAxis.kY ? -1:0,
+              m_yaw_axis == IMUAxis.kZ ? -1:0 ) ; 
+
+      
+          rot=QuaternionRotation.createVectorRotation(v, straight_down);
+          AxisAngleSequence rot_angles = rot.toAbsoluteAxisAngleSequence(AxisSequence.ZYX); 
+          System.out.printf ("Rotation is: %s\n\t[%.2f, %.2f, %.2f]\n", rot, 
+            rot_angles.getAngle3() * rad_to_deg, rot_angles.getAngle2()* rad_to_deg, rot_angles.getAngle1()* rad_to_deg);
+          calStartTime =-1;
+          rot_initial=rot;
+          lts = dp.timeStamp;
+        } 
+      }  else {
+        //post-calibration work section
+        double dt = dp.timeStamp - lts;
+        lts = dp.timeStamp; 
+        
+        m_ang_v_x[1] = m_ang_v_x[0]; m_ang_v_x [0] = dp.X_av;
+        m_ang_v_y[1] = m_ang_v_y[0]; m_ang_v_y [0] = dp.Y_av;
+        m_ang_v_z[1] = m_ang_v_z[0]; m_ang_v_z [0] = dp.Z_av;
+
+        m_delta_ang_x = (m_ang_v_x[1] + m_ang_v_x[0]) / 2 * dt;
+        m_delta_ang_y = (m_ang_v_y[1] + m_ang_v_y[0]) / 2 * dt;
+        m_delta_ang_z = (m_ang_v_z[1] + m_ang_v_z[0]) / 2 * dt;
+
+        // System.out.printf ("ANGLE: %.4f, %.4f, %.4f\n", 
+        //   m_integ_angle_x * rad_to_deg,
+        //   m_integ_angle_y* rad_to_deg,
+        //   m_integ_angle_z * rad_to_deg
+        //   );
+
+        AxisAngleSequence da = AxisAngleSequence.createAbsolute(AxisSequence.ZYX, m_delta_ang_z, m_delta_ang_y, m_delta_ang_x);
+        QuaternionRotation delta_rot = QuaternionRotation.fromAxisAngleSequence(da);
+        rot = rot.multiply(delta_rot);
+
+        Vector3D accel = Vector3D.of(dp.X_a, dp.Y_a, dp.Z_a); 
+        accel = rot.apply(accel);
+        accel = accel.add (Vector3D.of(0, 0, gravity)); 
+ 
+        AxisAngleSequence rot_angles = (rot.multiply(rot_initial.inverse())).toAbsoluteAxisAngleSequence(AxisSequence.ZYX);
+
+        synchronized (this) { 
+            m_accel_x[1] = m_accel_x[0]; m_accel_x[0] = accel.getX();
+            m_accel_y[1] = m_accel_y[0]; m_accel_y[0] = accel.getY();
+            m_accel_z[1] = m_accel_z[0]; m_accel_z[0] = accel.getZ();
+
+            m_v_x[1] = m_v_x[0]; m_v_x[0] += ( m_accel_x[1] +  m_accel_x[0] )  / 2 * dt;
+            m_v_y[1] = m_v_y[0]; m_v_y[0] += ( m_accel_y[1] +  m_accel_y[0] )  / 2 * dt;
+            m_v_z[1] = m_v_z[0]; m_v_z[0] += ( m_accel_z[1] +  m_accel_z[0] )  / 2 * dt;
+
+            m_x += ( m_v_x[1] +  m_v_x[0] )  / 2 * dt;
+            m_y += ( m_v_y[1] +  m_v_y[0] )  / 2 * dt;
+            m_z += ( m_v_z[1] +  m_v_z[0] )  / 2 * dt; 
+
+            m_angle_x_deg = rot_angles.getAngle3() * rad_to_deg; 
+            m_angle_y_deg = rot_angles.getAngle2() * rad_to_deg; 
+            m_angle_z_deg = rot_angles.getAngle1() * rad_to_deg; 
+        }
+ 
+      } 
         
     }
  
   }
 
+  public double getX() { return m_x;}
+  public double getY() { return m_y;}
+  public double getZ() { return m_z;}
+  public double getVX() { return m_v_x[0];}
+  public double getVY() { return m_v_y[0];}
+  public double getVZ() { return m_v_z[0];}
+
+
 
   private void acquire() {
     // Set data packet length
-    final int dataset_len = 27; // n data points + timestamp + 2 
+    final int dataset_len = 23; // n data points + timestamp + 2 
     final int BUFFER_SIZE = 4000;
     
     // Set up buffers and variables
@@ -780,7 +917,7 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
     int data_remainder = 0;
     int data_to_read = 0;
     double previous_timestamp = 0.0;
-    
+    //int last_data_cnt = 0;
     
     while (true) {
       // Sleep loop for 10ms
@@ -815,23 +952,39 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
           for (int i = 0; i < data_to_read; i += dataset_len) {
             int p=i;
             // Timestamp is at buffer[i]
+            double timeStamp = buffer[p] / 1e06; 
             double timeScale = (m_scaled_sample_rate / (buffer[p++] - previous_timestamp)); 
             p++ ; p++; //some kind of zero byte always here?
           
             DataPacket dp = new DataPacket();
 
             dp.timeScale = timeScale;
+            dp.timeStamp = timeStamp;
           
-            dp.X_da = toInt(buffer[p++], buffer[p++], buffer[p++], buffer[p++]) * k_delta_angle_sf / timeScale;
-            dp.Y_da = toInt(buffer[p++], buffer[p++], buffer[p++], buffer[p++])  * k_delta_angle_sf / timeScale;
-            dp.Z_da = toInt(buffer[p++], buffer[p++], buffer[p++], buffer[p++])  * k_delta_angle_sf / timeScale;
+            dp.X_av = toInt(buffer[p++], buffer[p++], buffer[p++], buffer[p++])  * k_av_sf;
+            dp.Y_av = toInt(buffer[p++], buffer[p++], buffer[p++], buffer[p++] )  * k_av_sf;
+            dp.Z_av = toInt(buffer[p++], buffer[p++], buffer[p++], buffer[p++] )  * k_av_sf;
 
-            dp.X_a= toInt(buffer[p++], buffer[p++], buffer[p++], buffer[p++])  / k_accel_sf * k_grav;
-            dp.Y_a= toInt(buffer[p++], buffer[p++], buffer[p++], buffer[p++]) / k_accel_sf * k_grav;
-            dp.Z_a= toInt(buffer[p++], buffer[p++], buffer[p++], buffer[p++]) / k_accel_sf * k_grav;
+            dp.X_a= toInt(buffer[p++], buffer[p++], buffer[p++], buffer[p++])  * k_accel_sf;
+            dp.Y_a= toInt(buffer[p++], buffer[p++], 0, 0)  * k_accel_sf;
+            dp.Z_a= toInt(buffer[p++], buffer[p++], 0, 0)  * k_accel_sf;
 
             Q.add(dp);
             queueSize.incrementAndGet();
+
+            // int data_cntr = toShort (buffer[p++], buffer[p++]) ;
+            // int diag_stat = toShort (buffer[p++], buffer[p++]) ;
+            // if (diag_stat != 0 ) {
+            //   DriverStation.reportWarning(
+            //     String.format("Error returned from gyro DIAG_STAT: %d", diag_stat), false);
+            // }
+
+            // if (data_cntr -1 < last_data_cnt) {
+            //   overflowCnt += data_cntr - 1 - last_data_cnt;
+            // }
+            // last_data_cnt = data_cntr; 
+
+
             acquireCnt += 1; 
 
             // Store timestamp for next iteration
@@ -859,9 +1012,9 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
    */
   public void resetAllAngles() {
     synchronized (this) {
-      m_integ_angle_x = 0.0;
-      m_integ_angle_y = 0.0;
-      m_integ_angle_z = 0.0;
+      m_delta_ang_x = 0.0;
+      m_delta_ang_y = 0.0;
+      m_delta_ang_z = 0.0;
     }
   }
 
@@ -915,7 +1068,7 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
    */
   public void setGyroAngleX(double angle) {
     synchronized (this) {
-      m_integ_angle_x = angle;
+      m_delta_ang_x = angle;
     }
   }
 
@@ -929,7 +1082,7 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
    */
   public void setGyroAngleY(double angle) {
     synchronized (this) {
-      m_integ_angle_y = angle;
+      m_delta_ang_y = angle;
     }
   }
 
@@ -943,7 +1096,7 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
    */
   public void setGyroAngleZ(double angle) {
     synchronized (this) {
-      m_integ_angle_z = angle;
+      m_delta_ang_z = angle;
     }
   }
 
@@ -972,17 +1125,17 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
         if (m_simGyroAngleX != null) {
           return m_simGyroAngleX.get();
         }
-        return m_integ_angle_x;
+        return m_angle_x_deg;
       case kY:
         if (m_simGyroAngleY != null) {
           return m_simGyroAngleY.get();
         }
-        return m_integ_angle_y;
+        return m_angle_y_deg;
       case kZ:
         if (m_simGyroAngleZ != null) {
           return m_simGyroAngleZ.get();
         }
-        return m_integ_angle_z;
+        return m_angle_z_deg;
         default:
     }
     //This return should never be reached.
@@ -996,7 +1149,7 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
     if (m_simAccelX != null) {
       return m_simAccelX.get();
     }
-    return m_accel_x;
+    return m_accel_x[0];
   }
 
   /**
@@ -1006,7 +1159,7 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
     if (m_simAccelY != null) {
       return m_simAccelY.get();
     }
-    return m_accel_y;
+    return m_accel_y[0];
   }
   
   /**
@@ -1016,7 +1169,7 @@ public class ADIS16470_3Axis implements AutoCloseable, NTSendable {
     if (m_simAccelZ != null) {
       return m_simAccelZ.get();
     }
-    return m_accel_z;
+    return m_accel_z[0];
   }
 
   /** 

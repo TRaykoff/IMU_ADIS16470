@@ -22,7 +22,7 @@ public class Robot extends TimedRobot {
   private boolean kUSE_SHUFFLEBOARD = false;
 
   // Gyro
-  ADIS16470_3Axis gyro = new ADIS16470_3Axis(IMUAxis.kZ, IMUAxis.kX, IMUAxis.kY);
+  ADIS16470_3Axis gyro = new ADIS16470_3Axis(IMUAxis.kZ, IMUAxis.kX, IMUAxis.kY,  ADIS16470_3Axis.CalibrationTime._8s);
 
   // Shuffleboard
   private ShuffleboardTab shuffleboardTab = Shuffleboard.getTab("ADIS16470");
@@ -35,8 +35,7 @@ public class Robot extends TimedRobot {
   private GenericEntry yAccel = shuffleboardTab.add("Y Velo", 0.0).getEntry();
   private GenericEntry zAccel = shuffleboardTab.add("Z Velo", 0.0).getEntry();
 
-  @Override
-  public void robotInit() {}
+ 
 
   private double lt = 0 ;
   @Override
@@ -54,13 +53,15 @@ public class Robot extends TimedRobot {
       double t = Timer.getFPGATimestamp();
       if (t-lt>1) lt = t;
       else return; 
-      System.out.println(String.format("Angle: %s, %s, %s; Accel: %s, %s, %s, Acquire: %d Overflow: %d Queue Size: %d",
+      System.out.println(String.format("[Yaw=%.1f, Pitch=%.1f, Roll=%.1f]; [A: %.2f, %.2f, %.2f], [V: %.2f, %.2f, %.2f],[ Pos: %.1f, %.1f, %.1f], Acquire: %d Overflow: %d Queue Size: %d",
         gyro.getAngle(gyro.getYawAxis()),
         gyro.getAngle(gyro.getPitchAxis()),
         gyro.getAngle(gyro.getRollAxis()),
         gyro.getAccelerationX(),
         gyro.getAccelerationY(),
         gyro.getAccelerationZ(),
+        gyro.getVX(), gyro.getVY(), gyro.getVZ(),
+        gyro.getX(), gyro.getY(), gyro.getZ(),
         gyro.getAcquireCnt(),
         gyro.getOverFlowCnt(),
         gyro.getQuqueSize()
